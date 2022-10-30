@@ -11,9 +11,11 @@ from allennlp.data.instance import Instance
 from allennlp.data.tokenizers import Token
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
+from allennlp.modules.seq2seq_encoders.pytorch_seq2seq_wrapper import PytorchSeq2SeqWrapper
 from allennlp.nn import util
 
 from gector.bert_token_embedder import PretrainedBertEmbedder
+from gector.crf import CrfTaggerr
 from gector.seq2labels_model import Seq2Labels
 from gector.tokenizer_indexer import PretrainedBertIndexer
 from utils.helpers import PAD, UNK, get_target_sent_by_edits, START_TOKEN
@@ -60,11 +62,15 @@ class GecBERTModel(object):
                 model_name, special_tokens_fix = self._get_model_data(model_path)
             weights_name = get_weights_name(model_name, lowercase_tokens)
             self.indexers.append(self._get_indexer(weights_name, special_tokens_fix))
-            model = Seq2Labels(vocab=self.vocab,
-                               text_field_embedder=self._get_embbeder(weights_name, special_tokens_fix),
-                               confidence=self.confidence,
-                               del_confidence=self.del_conf,
-                               ).to(self.device)
+            # model = Seq2Labels(vocab=self.vocab,
+            #                    text_field_embedder=self._get_embbeder(weights_name, special_tokens_fix),
+            #                    confidence=self.confidence,
+            #                    del_confidence=self.del_conf,
+            #                    ).to(self.device)
+            model = CrfTaggerr(vocab=self.vocab,
+                    text_field_embedder=self._get_embbeder(weights_name, special_tokens_fix),
+                    encoder=PytorchSeq2SeqWrapper(torch.nn.RNN(768, 20, 2, batch_first=True))
+                    ).to(self.device)
             if torch.cuda.is_available():
                 model.load_state_dict(torch.load(model_path), strict=False)
             else:

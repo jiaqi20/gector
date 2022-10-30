@@ -12,6 +12,7 @@ from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_lo
 from allennlp.training.metrics import CategoricalAccuracy
 from overrides import overrides
 from torch.nn.modules.linear import Linear
+from torchcrf import CRF
 
 
 @Model.register("seq2labels")
@@ -19,7 +20,6 @@ class Seq2Labels(Model):
     """
     This ``Seq2Labels`` simply encodes a sequence of text with a stacked ``Seq2SeqEncoder``, then
     predicts a tag (or couple tags) for each token in the sequence.
-
     Parameters
     ----------
     vocab : ``Vocabulary``, required
@@ -115,7 +115,6 @@ class Seq2Labels(Model):
             ``(batch_size, num_tokens)``.
         metadata : ``List[Dict[str, Any]]``, optional, (default = None)
             metadata containing the original words in the sentence to be tagged under a 'words' key.
-
         Returns
         -------
         An output dictionary consisting of:
@@ -127,17 +126,28 @@ class Seq2Labels(Model):
             a distribution of the tag classes per word.
         loss : torch.FloatTensor, optional
             A scalar loss to be optimised.
-
         """
         encoded_text = self.text_field_embedder(tokens)
         batch_size, sequence_length, _ = encoded_text.size()
         mask = get_text_field_mask(tokens)
+       
+
+        crf_label = CRF(self.num_labels_classes)
+        crf_d = CRF(self.num_detect_classes)
+
         logits_labels = self.tag_labels_projection_layer(self.predictor_dropout(encoded_text))
         logits_d = self.tag_detect_projection_layer(encoded_text)
 
-        class_probabilities_labels = F.softmax(logits_labels, dim=-1).view(
+        # best_paths = viterbi_tags(logits, mask, top_k=self.top_k)
+
+        # Just get the top tags and ignore the scores.
+        # predicted_tags = cast(List[List[int]], [x[0][0] for x in best_paths])
+        log_likelihood = crf_label(logits_labels, labels)
+        # log_likelihood_d = crf_d(logits_labels, labels)
+
+        class_probabilities_labels = F.log_softmax(logits_labels, dim=-1).view(
             [batch_size, sequence_length, self.num_labels_classes])
-        class_probabilities_d = F.softmax(logits_d, dim=-1).view(
+        class_probabilities_d = F.log_softmax(logits_d, dim=-1).view(
             [batch_size, sequence_length, self.num_detect_classes])
         error_probs = class_probabilities_d[:, :, self.incorr_index] * mask
         incorr_prob = torch.max(error_probs, dim=-1)[0]
@@ -151,14 +161,17 @@ class Seq2Labels(Model):
                        "class_probabilities_labels": class_probabilities_labels,
                        "class_probabilities_d_tags": class_probabilities_d,
                        "max_error_probability": incorr_prob}
-        if labels is not None and d_tags is not None:
-            loss_labels = sequence_cross_entropy_with_logits(logits_labels, labels, mask,
-                                                             label_smoothing=self.label_smoothing)
-            loss_d = sequence_cross_entropy_with_logits(logits_d, d_tags, mask)
-            for metric in self.metrics.values():
-                metric(logits_labels, labels, mask.float())
-                metric(logits_d, d_tags, mask.float())
-            output_dict["loss"] = loss_labels + loss_d
+
+        output_dict["loss"] = -log_likelihood
+
+        # if labels is not None and d_tags is not None:
+        #     loss_labels = sequence_cross_entropy_with_logits(logits_labels, labels, mask,
+        #                                                      label_smoothing=self.label_smoothing)
+        #     loss_d = sequence_cross_entropy_with_logits(logits_d, d_tags, mask)
+        #     for metric in self.metrics.values():
+        #         metric(logits_labels, labels, mask.float())
+        #         metric(logits_d, d_tags, mask.float())
+        #     output_dict["loss"] = loss_labels + loss_d
 
         if metadata is not None:
             output_dict["words"] = [x["words"] for x in metadata]

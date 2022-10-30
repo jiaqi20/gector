@@ -7,10 +7,12 @@ from allennlp.data.iterators import BucketIterator
 from allennlp.data.vocabulary import DEFAULT_OOV_TOKEN, DEFAULT_PADDING_TOKEN
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
+from allennlp.modules.seq2seq_encoders.pytorch_seq2seq_wrapper import PytorchSeq2SeqWrapper
 
 from gector.bert_token_embedder import PretrainedBertEmbedder
 from gector.datareader import Seq2LabelsDatasetReader
 from gector.seq2labels_model import Seq2Labels
+from gector.crf import CrfTaggerr
 from gector.trainer import Trainer
 from gector.tokenizer_indexer import PretrainedBertIndexer
 from utils.helpers import get_weights_name
@@ -78,11 +80,14 @@ def get_model(model_name, vocab, tune_bert=False,
               confidence=0,
               special_tokens_fix=0):
     token_embs = get_token_embedders(model_name, tune_bert=tune_bert, special_tokens_fix=special_tokens_fix)
-    model = Seq2Labels(vocab=vocab,
-                       text_field_embedder=token_embs,
-                       predictor_dropout=predictor_dropout,
-                       label_smoothing=label_smoothing,
-                       confidence=confidence)
+    # model = Seq2Labels(vocab=vocab,
+    #                    text_field_embedder=token_embs,
+    #                    predictor_dropout=predictor_dropout,
+    #                    label_smoothing=label_smoothing,
+    #                    confidence=confidence)
+    model = CrfTaggerr(vocab=vocab,
+                text_field_embedder=token_embs,
+                encoder=PytorchSeq2SeqWrapper(torch.nn.RNN(768, 20, 2, batch_first=True)))
     return model
 
 
